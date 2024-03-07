@@ -5,6 +5,32 @@ import io
 
 app = Flask(__name__)
 
+def extract_text_from_xml(xml:str)->str:
+    def recursive_loop(element, elements = []):
+        elements.append(element)
+
+        for child in element:
+            recursive_loop(child, elements)
+        
+        return elements
+
+    root = ET.fromstring(xml)
+
+    ns = {
+        'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
+    }
+
+    t = ""
+
+    for element in recursive_loop(root):
+        tag = element.tag.removeprefix(r"{http://schemas.openxmlformats.org/wordprocessingml/2006/main}")
+        if tag == "t":
+            t += element.text
+        if tag == "spacing":
+            t += "\n"
+    
+    return t
+
 @app.route('/')
 def home():
     return render_template('index.html')
@@ -28,21 +54,7 @@ def upload_file():
             with zip_ref.open('word/document.xml') as xml_file:
                 document_content = xml_file.read().decode('utf-8')
 
-            root = ET.fromstring(document_content)
-
-            ns = {
-                'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
-            }
-
-            text_elements = root.findall('.//w:t', namespaces=ns)
-
-            t = ""
-            for element in text_elements:
-                raw_text = element.text
-                if raw_text is not None:
-                    t += raw_text
-
-        return jsonify({'document_content': t})
+        return jsonify({'document_content': extract_text_from_xml(document_content)})
 
     except Exception as e:
         return jsonify({'error': f'Error processing the file: {str(e)}'})
