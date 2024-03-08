@@ -19,14 +19,16 @@ def create_span_html(text="", font="arial", size=12, bold=False, italics=False, 
     html_string = f'<span style="{style_string}">{text}</span>'
     return html_string
 
-def extract_text_from_xml(xml:str)->str:
-    def recursive_loop(element, elements = []):
-        elements.append(element)
+def get_all_elements(element, elements = []):
+    elements.append(element)
 
-        for child in element:
-            recursive_loop(child, elements)
-        
-        return elements
+    for child in element:
+        get_all_elements(child, elements)
+    
+    return elements
+
+def extract_text_from_xml(xml:str, links)->str:
+    
 
     root = ET.fromstring(xml)
 
@@ -36,8 +38,13 @@ def extract_text_from_xml(xml:str)->str:
 
     t = ""
 
-    for element in recursive_loop(root):
-        if element.tag == r"{http://schemas.openxmlformats.org/wordprocessingml/2006/main}r":
+    in_link = False
+    for element in get_all_elements(root):
+        if element.tag == r"{http://schemas.openxmlformats.org/wordprocessingml/2006/main}hyperlink":
+            in_link = True
+            id = element.get(r"{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id")
+            t += "<a href=\"" + links[id] + "\">"
+        elif element.tag == r"{http://schemas.openxmlformats.org/wordprocessingml/2006/main}r":
             text = ""
             font = "arial"
             size = 12
@@ -62,11 +69,33 @@ def extract_text_from_xml(xml:str)->str:
                             underline = True
             
             t += create_span_html(text, font, size, bold, italics, underline)
+            if in_link:
+                in_link = False
+                t += "</a>"
 
         elif element.tag == r"{http://schemas.openxmlformats.org/wordprocessingml/2006/main}spacing":
             t += "<br>"
 
     return t
+
+def get_links(xml_data):
+    root = ET.fromstring(xml_data)
+
+    # Dictionary to store results
+    hyperlink_dict = {}
+
+    # Iterate through each Relationship element
+    for relationship in get_all_elements(root):
+        if relationship.get("Type") != "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink":
+            continue
+        id_value = relationship.get('Id')
+        target_value = relationship.get('Target')
+
+        # Add to dictionary
+        hyperlink_dict[id_value] = target_value
+
+    print(hyperlink_dict)
+    return hyperlink_dict
 
 @app.route('/')
 def home():
@@ -88,10 +117,13 @@ def upload_file():
             if 'word/document.xml' not in zip_ref.namelist():
                 return jsonify({'error': 'No "word" folder found in the zip file'})
 
+            with zip_ref.open('word/_rels/document.xml.rels') as xml_file:
+                links_content = xml_file.read().decode('utf-8')
+            
             with zip_ref.open('word/document.xml') as xml_file:
                 document_content = xml_file.read().decode('utf-8')
 
-        return jsonify({'document_content': extract_text_from_xml(document_content)})
+        return jsonify({'document_content': extract_text_from_xml(document_content, get_links(links_content))})
 
     except Exception as e:
         return jsonify({'error': f'Error processing the file: {str(e)}'})
