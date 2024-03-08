@@ -7,6 +7,18 @@ import io
 sanitizer = Sanitizer()
 app = Flask(__name__)
 
+def create_span_html(text="", font="arial", size=12, bold=False, italics=False, underline=False):
+    style_string = f'font-family: {font}; font-size: {size}pt;'
+    if bold:
+        style_string += ' font-weight: bold;'
+    if italics:
+        style_string += ' font-style: italic;'
+    if underline:
+        style_string += ' text-decoration: underline;'
+
+    html_string = f'<span style="{style_string}">{text}</span>'
+    return html_string
+
 def extract_text_from_xml(xml:str)->str:
     def recursive_loop(element, elements = []):
         elements.append(element)
@@ -23,34 +35,36 @@ def extract_text_from_xml(xml:str)->str:
     }
 
     t = ""
-    last_font = None
-    current_font_tag = None
 
     for element in recursive_loop(root):
-        tag = element.tag.removeprefix(r"{http://schemas.openxmlformats.org/wordprocessingml/2006/main}")
-        if tag == "t":
-            t += element.text.replace("<","&lt;").replace(">","&gt;")
-        if tag == "spacing":
-            t += "\n"
-        if tag == "rFonts":
-            font = element.get(r'{http://schemas.openxmlformats.org/wordprocessingml/2006/main}ascii')
+        if element.tag == r"{http://schemas.openxmlformats.org/wordprocessingml/2006/main}r":
+            text = ""
+            font = "arial"
+            size = 12
+            bold = False
+            italics = False
+            underline = False
+            for child in element:
+                tag = child.tag.removeprefix(r"{http://schemas.openxmlformats.org/wordprocessingml/2006/main}")
+                if tag == "t":
+                    text = child.text
+                elif tag == "rPr":
+                    for data_child in child:
+                        if data_child.tag == r"{http://schemas.openxmlformats.org/wordprocessingml/2006/main}rFonts":
+                            font = data_child.get(r"{http://schemas.openxmlformats.org/wordprocessingml/2006/main}ascii")
+                        elif data_child.tag == r"{http://schemas.openxmlformats.org/wordprocessingml/2006/main}sz":
+                            size = int(data_child.get(r"{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val")) / 2
+                        elif data_child.tag == r"{http://schemas.openxmlformats.org/wordprocessingml/2006/main}b":
+                            bold = data_child.get(r"{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val") == "1"
+                        elif data_child.tag == r"{http://schemas.openxmlformats.org/wordprocessingml/2006/main}i":
+                            italics = data_child.get(r"{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val") == "1"
+                        elif data_child.tag == r"{http://schemas.openxmlformats.org/wordprocessingml/2006/main}u":
+                            underline = True
+            
+            t += create_span_html(text, font, size, bold, italics, underline)
 
-            font_text = "</span><span style=\"font-family: '"+font+"';"
-            current_font_tag = font_text
-        if tag == "sz" and current_font_tag != None:
-            size = element.get(r'{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val')
-            font_text = "font-size: " + str(int(size)//2) + "pt;\">"
-
-            current_font_tag += font_text
-            if last_font == current_font_tag:
-                current_font_tag = None
-                continue
-
-            last_font = current_font_tag
-            t += current_font_tag
-            current_font_tag = None
-    
-    t = t.replace("\n","<br>")
+        elif element.tag == r"{http://schemas.openxmlformats.org/wordprocessingml/2006/main}spacing":
+            t += "<br>"
 
     return t
 
@@ -67,7 +81,7 @@ def upload_file():
 
     if file.filename == '':
         return jsonify({'error': 'No selected file'})
-
+    
     try:
         zip_content = io.BytesIO(file.read())
         with ZipFile(zip_content, 'r') as zip_ref:

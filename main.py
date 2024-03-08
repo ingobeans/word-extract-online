@@ -1,2 +1,2 @@
 from api import server
-server.app.run()
+server.app.run(debug=True)
