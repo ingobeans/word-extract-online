@@ -1,8 +1,10 @@
 from flask import Flask, request, jsonify, render_template
 from zipfile import ZipFile
+from html_sanitizer import Sanitizer
 import xml.etree.ElementTree as ET
 import io
 
+sanitizer = Sanitizer()
 app = Flask(__name__)
 
 def extract_text_from_xml(xml:str)->str:
@@ -21,14 +23,35 @@ def extract_text_from_xml(xml:str)->str:
     }
 
     t = ""
+    last_font = None
+    current_font_tag = None
 
     for element in recursive_loop(root):
         tag = element.tag.removeprefix(r"{http://schemas.openxmlformats.org/wordprocessingml/2006/main}")
         if tag == "t":
-            t += element.text
+            t += element.text.replace("<","&lt;").replace(">","&gt;")
         if tag == "spacing":
             t += "\n"
+        if tag == "rFonts":
+            font = element.get(r'{http://schemas.openxmlformats.org/wordprocessingml/2006/main}ascii')
+
+            font_text = "</span><span style=\"font-family: '"+font+"';"
+            current_font_tag = font_text
+        if tag == "sz" and current_font_tag != None:
+            size = element.get(r'{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val')
+            font_text = "font-size: " + str(int(size)//2) + "pt;\">"
+
+            current_font_tag += font_text
+            if last_font == current_font_tag:
+                current_font_tag = None
+                continue
+
+            last_font = current_font_tag
+            t += current_font_tag
+            current_font_tag = None
     
+    t = t.replace("\n","<br>")
+
     return t
 
 @app.route('/')
